@@ -1,0 +1,119 @@
+/*
+   C socket server example, handles multiple clients using threads
+ */
+#include <dirent.h>
+
+#include<stdio.h>
+#include<string.h>    //strlen
+#include<stdlib.h>    //strlen
+#include<sys/socket.h>
+#include <netinet/tcp.h>
+#include <netinet/in.h>
+#include<signal.h> //handle ctrl+C
+#include<arpa/inet.h> //inet_addr
+#include<unistd.h>    //write
+#include<pthread.h> //for threading , link with lpthread
+#include<errno.h>
+#include<sys/wait.h>
+#include<sys/types.h>
+#include<sys/time.h>
+#include<netdb.h>
+#include<map>
+#include<string>
+#include<fstream>
+#include <sstream>
+#include <vector>
+#include<iostream>
+#include <chrono>
+#include <ctime>
+#include <sys/stat.h>
+#define MAXBUFSIZE 1000
+
+void *connection_handler(void *);
+int timeout = 1;
+// rootPath is like "./xxx/"
+std::string rootPath = "";
+int port = 0 ;
+int socket_desc;
+std::map<std::string, std::vector<std::string> > configs ;
+char delim = '\n';
+
+//      handle sigkill
+void sigchld_handler(int s)
+{
+        // waitpid() might overwrite errno, so we save and restore it:
+        int saved_errno = errno;
+
+        while(waitpid(-1, NULL, WNOHANG) > 0);
+
+        errno = saved_errno;
+        close(socket_desc);
+        exit(0);
+}
+std::vector<std::string> split(const std::string &s, char delim) {
+        std::vector<std::string> res;
+        std::stringstream ss;
+        ss.str(s);
+        std::string item;
+        while (std::getline(ss, item, delim)) {
+                res.push_back(item);
+        }
+        return res;
+}
+
+std::map<std::string, std::vector<std::string> > parseConfiguratioin() {
+        std::map<std::string,std::vector<std::string> > conf;
+        std::ifstream file;
+
+        file.open("dfs.conf");
+        if ( file.fail() ) {
+                perror("Error opening config file");
+                exit(1);
+        }
+        std::string s;
+        conf.clear();
+        while ( std::getline(file,s,delim) ) {
+                if ( s[0] == '#')
+                        continue;
+                int i ;
+                for ( i = 0 ; s[i] != ' ' ; ++i ) ;
+                conf[ s.substr(0,i) ] = split( s.substr(i+1) , ' ' );
+                if (file.eof())
+                        break;
+        }
+        file.close();
+        return conf;
+}
+
+//      check if the Folder exist
+//      creat path if not
+int createFolder(const char *pathname) {
+        struct stat info;
+
+        if( stat( pathname, &info ) == -1 ) {
+                //      Folder doesnt exist
+                mkdir(pathname, 0777);
+                return 1;
+        }
+        else if( info.st_mode & S_IFDIR ) {
+                //      Folder exist
+                return 0;
+        }
+        else {
+                //      Is a file, not a directory
+                return -1;
+        }
+}
+
+void init();
+int main(int argc , char *argv[])
+{
+        init();
+        if ( argc != 3 ) {
+                printf("Usage: server root_path port_num\n");
+                return 0;
+        }
+        rootPath = std::string("./") + std::string(argv[1]);
+        if ( (port = atoi(argv[2])) < 1024 ) {
+                perror("invalid port");
+                ex

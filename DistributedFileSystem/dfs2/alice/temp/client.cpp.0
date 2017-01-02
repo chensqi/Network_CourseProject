@@ -1,0 +1,142 @@
+#include<stdio.h>
+#include<string.h>    //strlen
+#include<stdlib.h>    //strlen
+#include<sys/socket.h>
+#include <netinet/tcp.h>
+#include <netinet/in.h>
+#include<signal.h> //handle ctrl+C
+#include<arpa/inet.h> //inet_addr
+#include<unistd.h>    //write
+#include<pthread.h> //for threading , link with lpthread
+#include<errno.h>
+#include<sys/wait.h>
+#include<sys/types.h>
+#include<sys/time.h>
+#include<netdb.h>
+#include<map>
+#include<string>
+#include<fstream>
+#include <sstream>
+#include <vector>
+#include<iostream>
+#include <chrono>
+#include <ctime>
+#define MAXBUFSIZE 10000
+std::map<std::string, std::vector<std::string> > configs ;
+char delim = '\n';
+int partition = 4;
+int backup = 2; // store a pice of file into <backup> different server
+
+void error(char *msg)
+{
+        perror(msg);
+        exit(0);
+}
+std::vector<std::string> split(const std::string &s, char delim) {
+        std::vector<std::string> res;
+        std::stringstream ss;
+        ss.str(s);
+        std::string item;
+        while (std::getline(ss, item, delim)) {
+                res.push_back(item);
+        }
+        return res;
+}
+void init(char *filename) {
+        std::ifstream file;
+
+        file.open(filename);
+        if ( file.fail() ) {
+                perror("Error opening file");
+                exit(1);
+        }
+        std::string s;
+        configs.clear();
+        while ( std::getline(file,s,delim) ) {
+                if ( s[0] == '#')
+                        continue;
+                int i ;
+                for ( i = 0 ; s[i] != ' ' ; ++i ) ;
+                std::vector<std::string> t = split( s.substr(i+1) , ' ' ); 
+                for ( int j = 0 ; j < t.size() ; ++j )
+                        configs[ s.substr(0,i) ].push_back( t[j] );
+                if (file.eof())
+                        break;
+        }
+        file.close();
+
+        if ( configs.count("Username") == 0 ) {
+                perror("No username!\n");
+                exit(1);
+        }
+        if ( configs.count("Password") == 0 ) {
+                perror("No password!\n");
+                exit(1);
+        }
+        if ( configs.count("Server") == 0 ) {
+                error("No server!\n");
+        }
+        partition = configs["Server"].size() / 2 ;
+
+}
+int md5(std::string file) {
+        int s = 0 ;
+        for ( int i = 0 ; i < file.size() ; ++i ) 
+                s = s * 255 + file[i];
+        return s;
+}
+
+//      return -1 if can not connect
+int getConnect(std::string host, std::string port) {
+        int sockfd, portno, n;
+        struct sockaddr_in serveraddr;
+        struct hostent *server;
+        char buf[5+MAXBUFSIZE];
+
+        portno = atoi(port.c_str());
+
+        /* socket: create the socket */
+        sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sockfd < 0) {
+                perror("ERROR opening socket");
+                return -1;
+        }
+
+        /* gethostbyname: get the server's DNS entry */
+        server = gethostbyname(host.c_str());
+        if (server == NULL) {
+                fprintf(stderr,"ERROR, no such host as %s\n", host.c_str());
+                close(sockfd);
+                return -1;
+        }
+
+        /* build the server's Internet address */
+        bzero((char *) &serveraddr, sizeof(serveraddr));
+        serveraddr.sin_family = AF_INET;
+        bcopy((char *)server->h_addr, 
+                        (char *)&serveraddr.sin_addr.s_addr, server->h_length);
+        serveraddr.sin_port = htons(portno);
+
+        /* connect: create a connection with the server */
+        if (connect(sockfd, (sockaddr *)&serveraddr, sizeof(serveraddr)) < 0) {
+                //perror("ERROR connecting");
+                close(sockfd);
+                return -1;
+        }
+        return sockfd;
+}
+//      return -1 : connect fail
+//      return -2 : no such server, more than server list 
+int getConnect(int i) {
+        if ( 2*i+1 >= configs["Server"].size() )
+                return -2;
+        std::string addr = configs["Server"][2*i+1];
+        std::string host, port;
+        for ( int j = 0 ; j < addr.size() ; ++j )
+                if ( addr[j] == ':' ) {
+                        host = addr.substr(0,j); 
+                        port = addr.substr(j+1);
+                }
+        return getConnect(host,port);
+}
+void decode(char *buf 

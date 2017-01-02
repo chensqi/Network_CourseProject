@@ -1,0 +1,120 @@
+ int len) {
+        //for ( int i = len-2 ; i >= 0 ; --i )
+        //        buf[i] ^= buf[i+1];
+}
+void encode(char *buf, int len) {
+        //for ( int i = 0 ; i < len-1 ; ++i )
+        //        buf[i] ^= buf[i+1];
+}
+int recvTimeout(int sock, char *buf, int len, int timeoutSec, int timeoutUsec=0)
+{
+        fd_set fds;
+        int n;
+        struct timeval tv;
+
+        // set up the file descriptor set
+        FD_ZERO(&fds);
+        FD_SET(sock, &fds);
+
+        // set up the struct timeval for the timeout
+        tv.tv_sec = timeoutSec;
+        tv.tv_usec = timeoutUsec;
+
+        // wait until timeout or data received
+        n = select(sock+1, &fds, NULL, NULL, &tv);
+        if (n == 0) return -2; // timeout!
+        if (n == -1) return -1; // error
+
+        int t = recv(sock, buf, len, 0);
+        decode(buf,t);
+        buf[t] = 0;
+        return t;
+}
+int sendMessage(int sock, const char *buf, int len) {
+        char message[5+MAXBUFSIZE];
+        for ( int i = 0 ; i < len ; ++i )
+                message[i] = buf[i];
+        message[len] = 0;
+        encode(message,len);
+        return write(sock,message,len);
+}
+
+//      send username and password to server
+//      return 1 if server response "Ok"
+//      return 0 if "No"
+//      return -1 if timeout
+int shakeHand(int sock) {
+        std::string username = configs["Username"][0];
+        std::string password = configs["Password"][0];
+        std::string msg = username + " " + password; 
+        int n = sendMessage(sock, msg.c_str(), msg.size());
+        if (n < 0) { 
+                perror("ERROR writing to socket");
+                return -1;
+        }
+        char buf[5+MAXBUFSIZE];
+        int t;
+
+        if ( (t = recvTimeout(sock, buf, MAXBUFSIZE, 1, 0)) > 0 ) {
+                buf[t] = 0;
+
+                if ( strcmp(buf,"Ok") == 0 ) {
+                        return 1;
+                }
+                else {
+                        puts("Invalid Username/Password. Please try again\n");
+                        return 0;       //      response is "No"
+                }
+        }
+        else {
+                return -1;       //      TimeOut
+        }
+}
+std::map<std::string,int> completeList;
+//      directory is "xxx/xxx/"
+void handleList(std::string directory) {
+        
+        int sock ;
+        char buf[5+MAXBUFSIZE];
+        std::string filename;
+        std::vector<std::string> filenameList;
+        std::vector<std::string> tempList;
+
+        filenameList.clear();
+
+        if ( directory == "" ) directory = "list";
+        else directory = std::string("list ") + directory;
+
+        for ( int i = 0 ; (sock=getConnect(i)) != -2 ; ++i ) {
+                if ( sock > 0 && shakeHand(sock) == 1 ) {        //      correct username and password
+                        //printf("Server %d says OK!\n",i); 
+                        sendMessage(sock, directory.c_str(), directory.size());
+                        int t = recvTimeout(sock,buf,MAXBUFSIZE,1,0);
+                        tempList = split( std::string(buf), ',' );
+                        for ( int j = 0 ; j < tempList.size() ; ++j )
+                                if ( tempList[j] != "ls!" && tempList[j] != "." && tempList[j] != "..")
+                                        filenameList.push_back( tempList[j]);
+                }
+                close(sock);
+        }
+        completeList.clear();
+
+        for ( int i = 0 ; i < filenameList.size() ; ++i ) {
+                filename = filenameList[i];
+                int part = -1 ;
+                for ( int j = filename.size() - 1 ; j >= 0 ; --j )
+                        if ( filename[j] == '.' ) {
+                                part = atoi( filename.substr(j+1).c_str() );
+                                filename = filename.substr(0,j);
+                                completeList[filename] |= (1<<part);
+                                break;
+                        }
+                 if ( part == -1 ) {
+                        completeList[filename] = -1 ;
+                 }
+        }
+
+        puts("----------- File(s): -------------\n");
+        if ( completeList.size() == 0 ) puts("(empty)\n");
+        for ( std::map<std::string, int>::iterator it = completeList.begin() ; it != completeList.end() ; ++it ) {
+                printf(

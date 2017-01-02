@@ -1,0 +1,95 @@
+    fclose(file);
+        return 1;
+}
+int handleExist(int sock, std::string filename) {
+        FILE *file = fopen((rootPath+filename).c_str(), "r");
+        if ( file == NULL ) {
+                sendMessage(sock, "No", 2);
+        }
+        else {
+                sendMessage(sock, "Ok", 2);
+                fclose(file);
+        }
+        return 1;
+}
+
+void handleCommand( int sock) {
+        char message[MAXBUFSIZE+5];
+        int read_size;
+
+        while ( true ) {
+                read_size = recvTimeout(sock, message, MAXBUFSIZE, timeout, 0);
+                if ( read_size > 0 ) {
+                        std::stringstream ss(message);
+                        std::string cmd;
+                        std::string filename, directory;
+
+                        ss >> cmd;
+                        if ( cmd == "list" ) {
+                                ss>>directory ;
+                                handleList(sock,directory);
+                                break;
+                        }
+                        else if ( cmd == "put") {
+                                sendMessage(sock,"Ok",2);
+                                ss>>filename;
+                                handlePut(sock,filename);
+                                break;
+                        }
+                        else if ( cmd == "get") {
+                                ss>>filename;
+                                handleGet(sock,filename);
+                        }
+                        else if ( cmd == "exist" ) {
+                                ss>>filename;
+                                handleExist(sock,filename);
+                        }
+                        else if ( cmd == "mkdir" ) {
+                                ss>>directory;
+                                handleMkdir(sock, directory);
+                                break;
+                        }
+                }
+                else
+                        break;
+        }
+
+}
+/*
+ * This will handle connection for each client
+ * */
+void *connection_handler(void *socket_desc)
+{
+        puts("new connection!");
+        //Get the socket descriptor
+        int sock = *(int*)socket_desc;
+        int read_size;
+        char *message , client_message[MAXBUFSIZE+5];
+
+        //Receive a message from client
+        std::string content("") ;
+
+        if( (read_size = recvTimeout(sock , client_message , MAXBUFSIZE , timeout, 50000)) > 0 )
+        {
+                std::stringstream ss;
+                std::string username, password;
+                ss << client_message;
+                ss >> username >> password;
+                if ( configs.count(username)== 0 || configs[username][0] != password ) {
+                        sendMessage( sock, "No", 2);
+                }
+                else {
+                        sendMessage( sock, "Ok", 2);
+                        createFolder((rootPath+username).c_str());
+                        handleCommand(sock);
+                }
+        }
+
+        close(sock);
+        free((int *)socket_desc);
+
+        return 0;
+}
+void init() {
+        configs = parseConfiguratioin();
+}

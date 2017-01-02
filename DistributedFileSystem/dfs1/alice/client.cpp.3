@@ -1,0 +1,112 @@
+ */
+        FILE *file = fopen(filename.c_str(),"w");
+
+        for ( int j = 0 ; j < partition ; ++j ) //      j-th part of the file
+                for ( int i = 0 ; i < partition ; ++i ) {       // i-th server
+                        int sock = getConnect(i);
+                        if ( sock > 0 && shakeHand(sock) == 1 ) {        //      correct username and password
+                                std::string cmd = std::string("exist ") + directory + filename + std::string(".") + std::to_string(j);
+                                sendMessage(sock,cmd.c_str(),cmd.size());
+                                recvTimeout(sock,buf,MAXBUFSIZE,1,0);
+                                if ( strcmp(buf,"Ok") == 0 ) {
+                                        
+                                        std::string cmd = std::string("get ") + directory + filename + std::string(".") + std::to_string(j);
+                                        sendMessage(sock,cmd.c_str(),cmd.size());
+
+                                        int t ;
+                                        while ( (t=recvTimeout(sock,buf,MAXBUFSIZE,1,0)) > 0 ) {
+                                                fwrite(buf, sizeof(char), t, file);
+                                        } 
+
+                                        fseek(file, -1, SEEK_CUR);
+
+                                        mask |= (1<<j);
+                                        close(sock);
+                                        break;
+                                }
+                        }
+                        close(sock);
+                }
+        fclose(file);
+        if ( mask != (1<<partition)-1) {
+                system((std::string("rm ")+filename).c_str());
+                //printf("Get file %s fail!\n",filename.c_str());
+                puts("File is incomplete\n");
+        }
+        return 1;
+}
+
+int main(int argc, char * argv[]) {
+        
+        /* check command line arguments */
+        if (argc != 2) {
+                fprintf(stderr,"usage: %s <dfc.conf>\n", argv[0]);
+                exit(0);
+        }
+        init(argv[1]);
+
+        char buf[5+MAXBUFSIZE];
+
+        while ( true ) {
+        
+                puts("Please input:\n");
+                puts("1. list <directory>\n");
+                puts("2. get <file> <directory>\n");
+                puts("3. put <file> <directory>\n");
+                puts("4. mkdir <directory>\n");
+                puts("5. quit\n");
+
+                fgets(buf, MAXBUFSIZE, stdin);
+                std::stringstream ss(buf) ;
+                std::string cmd, filename, directory;
+                ss >> cmd;
+
+                if ( cmd == "list" ) {
+                        ss >> directory;
+                        handleList(configs["Username"][0]+std::string("/")+directory);
+                }
+                else if ( cmd == "get" ) {
+                        ss >> filename >> directory;
+                        handleGet(configs["Username"][0]+std::string("/")+directory,filename);
+                }
+                else if ( cmd == "put" ) {
+                        ss >> filename >> directory;
+                        handlePut(configs["Username"][0]+std::string("/")+directory,filename);
+                }
+                else if ( cmd == "quit" ) {
+                        puts("bye!\n");
+                        break;
+                }
+                else if ( cmd == "mkdir" ) {
+                        ss >> directory;
+                        handleMkdir(configs["Username"][0]+std::string("/")+directory);
+                }
+                else {
+                        puts("please input correct command\n");
+                }
+        }
+
+
+        /* get message line from the user */
+//        printf("Please enter msg: ");
+//        bzero(buf, BUFSIZE);
+//        fgets(buf, BUFSIZE, stdin);
+
+        /* send the message line to the server */
+//        n = write(sockfd, buf, strlen(buf));
+//        if (n < 0) 
+//                error("ERROR writing to socket");
+
+
+        /* print the server's reply */
+//        bzero(buf, BUFSIZE);
+ //       n = read(sockfd, buf, BUFSIZE);
+  //      if (n < 0) 
+   //             error("ERROR reading from socket");
+    //    printf("Echo from server: %s", buf);
+     //   close(sockfd);
+
+        return 0;
+
+
+}

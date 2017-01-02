@@ -1,0 +1,95 @@
+ec;
+        tv.tv_usec = timeoutUsec;
+
+        // wait until timeout or data received
+        n = select(sock+1, &fds, NULL, NULL, &tv);
+        if (n == 0) return -2; // timeout!
+        if (n == -1) return -1; // error
+
+        int t = recv(sock, buf, len, 0);
+        decode(buf,t);
+        buf[t] = 0 ;
+        return t;
+}
+int sendMessage(int sock, char *buf, int len) {
+        char message[MAXBUFSIZE+5];
+        for ( int i = 0 ; i < len ; ++i )
+                message[i] = buf[i];
+        message[len] = 0;
+        encode(message,len);
+        return write(sock,message,len);
+}
+
+int handleMkdir(int sock, std::string directory) {
+        directory = rootPath+directory;
+        createFolder(directory.c_str());
+}
+
+// return -1 if directory doesnt exist
+// directory: must be "xxx/xxx/" form
+int handleList(int sock, std::string directory) {
+        directory = rootPath + directory;
+        char response[MAXBUFSIZE+5] = {0};
+        DIR *dp;
+        struct dirent *ep;
+        dp = opendir(directory.c_str());
+        int first = 1;
+        if ( dp != NULL ) {
+                while ( ep = readdir(dp) ) {
+                        if ( !first )
+                                strcat(response,",");
+                        first = 0;
+                        strcat(response,ep->d_name);
+                }
+                closedir(dp);
+        }
+        else {
+                printf("Couldn't open the directory\n");
+                sendMessage(sock,"ls!",3);
+                return -1;
+                // Send empty msg to client since it's waiting for response
+        }
+        strcat(response,",ls!");
+        sendMessage(sock, response, strlen(response));
+        return 1;
+}
+int handlePut(int sock, std::string filename) {
+        char buf[MAXBUFSIZE+5];
+        FILE *file = fopen((rootPath+filename).c_str(), "w");
+        int t ;
+        while ( (t = recvTimeout(sock, buf, MAXBUFSIZE, timeout, 0) ) > 0 ) {
+               fwrite( buf, sizeof(char), t, file); 
+        }
+        fclose(file);
+        return 1;
+}
+//      filename is <relativepath/filename.1> like
+int handleGet(int sock, std::string filename) {
+        char buf[MAXBUFSIZE+5];
+        FILE *file = fopen((rootPath+filename).c_str(), "r");
+        if ( file == NULL )
+        {
+                printf("Open file fail!\n");    //      return 1 to wait for the next command
+                return 1;
+        }
+
+        printf(" ---------------- \t Start sending file %s to client ! \t --------------- \n",filename.c_str());
+
+        fseek(file, 0, SEEK_END);
+        int fileSize = ftell(file);
+        rewind(file);
+
+        int chunk = 0 ;
+        int cnt = 0 ;
+        while ( chunk < fileSize ) {        //     chunk the file and send them 
+                int result = fread( buf, 1, MAXBUFSIZE-5, file );
+                if ( result == 0 )
+                        break;
+                buf[result] = 0;
+                sendMessage(sock, buf, result);
+                chunk += result;
+        }
+
+        printf(" ----------------- \t Sending file %s finished! \t ----------------- \n",filename.c_str());
+
+    

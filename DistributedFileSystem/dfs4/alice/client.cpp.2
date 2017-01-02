@@ -1,0 +1,101 @@
+"%s",(it->first).c_str());
+                if ( it->second != (1<<partition)-1 ) {
+                        if ( it->second == -1 ) puts("/");
+                        else
+                                puts("[incomplete]"); 
+                }
+                puts("\n");
+        }
+        puts("----------- List end -------------\n");
+}
+//      directory is "xxx/xxx/"
+void handleMkdir(std::string directory) {
+        
+        int sock ;
+        char buf[5+MAXBUFSIZE];
+
+        if ( directory == "" ) return ;
+        else directory = std::string("mkdir ") + directory;
+
+        for ( int i = 0 ; (sock=getConnect(i)) != -2 ; ++i ) {
+                if ( sock > 0 && shakeHand(sock) == 1 ) {        //      correct username and password
+                        sendMessage(sock, directory.c_str(), directory.size());
+                }
+        }
+} 
+//      return 0 if no such file
+//      directory must be "xxx/xxx/"
+int handlePut(std::string directory, std::string filename) {
+        FILE *file;
+        file = fopen( filename.c_str(), "r");
+        int hash = md5(filename) % partition;
+        char buf[5+MAXBUFSIZE];
+        if ( file == NULL )
+        {
+                printf("Open file fail!\n");    //      return 1 to wait for the next command
+                return 0;
+        }
+        else {
+                printf(" ---------------- \t Start sending file %s to server! \t --------------- \n",filename.c_str());
+
+                fseek(file, 0, SEEK_END);
+                int fileSize = ftell(file);
+                rewind(file);
+
+                // sending i-th partition to 2 server
+                for ( int i = 0 ; i < partition ; ++i ) {
+                
+                        int j = (hash+i)%partition ;
+                        int cnt = 0 ;
+                        int loopCnt = 0 ;
+                        while ( cnt < backup && loopCnt < partition ) {
+
+                                int sock = getConnect(j) ;
+                                if ( sock == -2 ) break;
+                                if ( sock > 0 && shakeHand(sock) ) {
+                                        // transfer
+                                        ++cnt;
+
+                                        // calc length
+                                        int len = fileSize - i*(fileSize/partition);
+                                        if ( i != partition-1 )
+                                                len = fileSize/partition;
+
+                                        //      send "put <directory/filename.parnum> directory"
+                                        std::string cmd = std::string("put ") + directory + filename + std::string(".") + std::to_string(i);
+                                        sendMessage(sock,cmd.c_str(),cmd.size()); 
+                                        //      receive "Ok" from server
+                                        recvTimeout(sock,buf,MAXBUFSIZE,1,0);
+
+                                        //      send file by chunk
+                                        int chunk = 0 ;
+                                        fseek(file, i*(fileSize/partition), SEEK_SET);
+                                        while ( chunk < len ) {
+                                                int result = fread( buf, sizeof(char), std::min(MAXBUFSIZE-5,len-chunk), file ); 
+                                                sendMessage(sock, buf, result);
+                                                //TODO check send response
+                                                chunk += result;
+                                        }
+                                        close(sock);
+                                }
+                                ++j;
+                                ++loopCnt;
+                                j %= partition;
+                        }
+                }
+
+
+                printf(" ---------------- \t sending file finished! \t ---------------------\n");
+        }
+}
+
+int handleGet(std::string directory, std::string filename) {
+        int mask = 0 ;
+        char buf[MAXBUFSIZE+5];
+
+        /*
+        if ( completeList.count(filename) == 0 || completeList[filename] != (1<<partition)-1 ) {
+                puts("File is incomplete\n");
+                return 0;
+        }
+       
